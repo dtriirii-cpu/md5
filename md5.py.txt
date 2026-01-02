@@ -1,0 +1,162 @@
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler,
+    ContextTypes, CallbackQueryHandler
+)
+import hashlib
+
+# ================== CẤU HÌNH ==================
+
+TOKEN = "8561271538:AAEqmE_DcB3RZE2ln6Ig7zDTrCOReZ9EraY"
+
+# ID ADMIN (lấy bằng @userinfobot)
+ADMIN_IDS = {8129411808}  # thay bằng ID Telegram của bạn
+
+VALID_KEYS = set()
+USER_KEYS = {}
+
+# ================== THUẬT TOÁN MD5 (ỔN ĐỊNH) ==================
+
+def md5_engine(md5: str):
+    seed = int(hashlib.sha256(md5.encode()).hexdigest(), 16)
+
+    nums = sum(c.isdigit() for c in md5)
+    chars = sum(c.isalpha() for c in md5)
+
+    balance = nums - chars
+    entropy = len(set(md5)) // 4
+    weight = (seed % 3) + 1
+
+    total = balance + entropy + weight
+
+    result = "Tài 🟡" if total >= 2 else "Xỉu 🔵"
+    trend = "TĂNG NHẸ (8-10)" if total >= 3 else "ĐI NGANG"
+    confidence = min(97.0, 90 + abs(total) * 1.1)
+    verify = hex(seed % 0xFFFFFF)[2:].upper()
+
+    return total, trend, result, round(confidence, 1), verify
+
+# ================== /START ==================
+
+async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🔑 Nhập KEY", callback_data="enter_key")],
+        [InlineKeyboardButton("📊 Phân tích MD5", callback_data="enter_md5")]
+    ]
+    await update.message.reply_text(
+        "🤖 Bot phân tích MD5\n"
+        "👤 Bot do Đức Trí tạo\n"
+        "⚠️ Kết quả chỉ mang tính tham khảo\n",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# ================== INLINE BUTTON ==================
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "enter_key":
+        await query.message.reply_text("➡️ Nhập key bằng lệnh:\n/key <KEY>")
+    elif query.data == "enter_md5":
+        await query.message.reply_text("➡️ Dùng lệnh:\n/md5 <chuỗi_md5>")
+
+# ================== /KEY ==================
+
+async def key_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if len(context.args) != 1:
+        await update.message.reply_text("❌ Dùng: /key <KEY>")
+        return
+
+    key = context.args[0]
+
+    if key not in VALID_KEYS:
+        await update.message.reply_text("❌ KEY không hợp lệ")
+        return
+
+    USER_KEYS[user_id] = key
+    await update.message.reply_text("✅ Kích hoạt KEY thành công")
+
+# ================== /MD5 ==================
+
+async def md5_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if user_id not in USER_KEYS:
+        await update.message.reply_text("🔒 Vui lòng nhập KEY trước: /key <KEY>")
+        return
+
+    if len(context.args) != 1:
+        await update.message.reply_text("❌ Dùng: /md5 <md5>")
+        return
+
+    md5 = context.args[0].lower()
+
+    if len(md5) != 32 or not all(c in "0123456789abcdef" for c in md5):
+        await update.message.reply_text("❌ MD5 phải đủ 32 ký tự hex")
+        return
+
+    score, trend, result, conf, verify = md5_engine(md5)
+
+    msg = f"""
+⚡ PHÂN TÍCH MD5 ⚡
+━━━━━━━━━━━━━━━
+🔑 MÃ MD5:
+{md5}
+
+📊 TỔNG ĐIỂM: {score}
+📈 XU HƯỚNG: {trend}
+
+🛡 ĐỘ TIN CẬY: {conf}%
+
+🎯 KẾT QUẢ: {result}
+🆔 MÃ XÁC THỰC: {verify}
+
+👤 Bot do Đức Trí tạo
+⚠️ Kết quả chỉ mang tính chất tham khảo,
+⚠️ không chắc chắn đúng 100%
+━━━━━━━━━━━━━━━
+"""
+    await update.message.reply_text(msg)
+
+# ================== ADMIN ADD / REMOVE KEY ==================
+
+async def addkey_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+
+    if len(context.args) != 1:
+        await update.message.reply_text("❌ Dùng: /addkey <KEY>")
+        return
+
+    key = context.args[0]
+    VALID_KEYS.add(key)
+    await update.message.reply_text(f"✅ Đã thêm KEY: {key}")
+
+async def delkey_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+
+    if len(context.args) != 1:
+        await update.message.reply_text("❌ Dùng: /delkey <KEY>")
+        return
+
+    key = context.args[0]
+    VALID_KEYS.discard(key)
+    await update.message.reply_text(f"🗑 Đã xoá KEY: {key}")
+
+# ================== CHẠY BOT ==================
+
+app = ApplicationBuilder().token(TOKEN).build()
+
+app.add_handler(CommandHandler("start", start_cmd))
+app.add_handler(CommandHandler("key", key_cmd))
+app.add_handler(CommandHandler("md5", md5_cmd))
+app.add_handler(CommandHandler("addkey", addkey_cmd))
+app.add_handler(CommandHandler("delkey", delkey_cmd))
+app.add_handler(CallbackQueryHandler(button_handler))
+
+print("🤖 Bot đang chạy...")
+app.run_polling()
